@@ -1,0 +1,35 @@
+{
+  "max_wait": 60,
+  "interval": 2,
+  "timeout": 30,
+  "max_retries": 3,
+  "retry_delay": 2,
+  "fingerprint": {
+    "browser": "chrome",
+    "version": "120",
+    "os": "windows",
+    "os_version": "10",
+    "device_type": "desktop",
+    "rotate_fingerprints": true,
+    "rotate_between_batches": true,
+    "accounts_per_batch": 5,
+    "custom_user_agents": [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ],
+    "screen_resolutions": [
+      "1920x1080",
+      "1366x768",
+      "1440x900",
+      "1536x864",
+      "1280x720"
+    ],
+    "timezone": "auto",
+    "language": "en-US",
+    "platform": "Win32"
+  }
+}
