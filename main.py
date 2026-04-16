@@ -1,14 +1,13 @@
 import os, random, string, time, re, imaplib, email, json, mimetypes
 from email.header import decode_header
 from email.utils import getaddresses
-from datetime import datetime
+from datetime import datetime, UTC
 from curl_cffi import requests as req
 import names
 from itertools import product
 from curl_cffi import CurlMime
 import os
 import random
-from instagrapi import Client
 
 import requests  # For Telegram notifications
 
@@ -222,54 +221,14 @@ class InstagramBot:
             return None
         return os.path.join(folder, random.choice(images))
 
-    def follow_targets(self, sessionid, settings=None, settings_path="settings.json"):
-        """Follow target accounts"""
-        if settings is None:
-            try:
-                with open(settings_path, "r") as f:
-                    settings = json.load(f)
-            except Exception as e:
-                print(f"[✖] Failed to read settings.json: {e}")
-                return
+    
 
-        target_usernames = settings.get("follow_targets", [])
-        if not target_usernames:
-        
-            return
-
-        max_to_follow = min(len(target_usernames), 3)
-        max_retries = settings.get("max_retries", 3)
-        retry_delay = settings.get("retry_delay", 2)
-
-        cl = Client()
-        try:
-            cl.login_by_sessionid(sessionid)
-        except Exception as e:
-            print(f"[✖] Failed to login with session: {e}")
-            return
-
-        for i, username in enumerate(target_usernames[:max_to_follow], 1):
-            print(f"[ ] Following user {i}/{max_to_follow}: {username}…")
-            retries = 0
-            while retries < max_retries:
-                try:
-                    user_id = cl.user_id_from_username(username)
-                    cl.user_follow(user_id)
-                    print(f"✅ Successfully followed: {username}")
-                    break
-                except Exception as e:
-                    retries += 1
-                    print(f"[⚠] Retry {retries}/{max_retries} for {username}: {e}")
-                    time.sleep(retry_delay)
-            else:
-                print(f"[✖] Could not follow {username} after {max_retries} retries.")
-
-    def upload_random_post(self, sessionid, folder="Posts"):
+    def upload_random_post(self, sessionid, headers, folder="Posts"):
         print("[ ] Uploading post…")
         image_path = self.get_random_profile_image(folder)
         if not image_path:
             print("[✖] No image found to upload as post.")
-            return
+            return None
 
         captions = [
             "Feeling good today! 😎",
@@ -283,14 +242,142 @@ class InstagramBot:
         ]
         caption = random.choice(captions)
 
-        cl = Client()
         try:
-            cl.login_by_sessionid(sessionid)
-            cl.photo_upload(image_path, caption=caption)
-            print(f"✅ Post uploaded successfully: {os.path.basename(image_path)}")
-            print(f"Caption: {caption}")
+            # Generate unique upload ID
+            upload_id = str(int(time.time() * 1000))
+            
+            # Setup cookies from session
+            cookies = {
+                "sessionid": sessionid,
+                "csrftoken": headers.get('x-csrftoken', ''),
+                "ig_did": headers.get('x-web-device-id', ''),
+            }
+            
+            # Read image file
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # Step 1: Upload photo using rupload_igphoto endpoint
+            print("[ ] Uploading photo to Instagram...")
+            upload_url = f"https://i.instagram.com/rupload_igphoto/fb_uploader_{upload_id}"
+            
+            upload_headers = {
+                'User-Agent': headers.get('user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+                'X-CSRFToken': cookies['csrftoken'],
+                'X-IG-App-ID': headers.get('x-ig-app-id', '936619743392459'),
+                'X-Instagram-AJAX': headers.get('x-instagram-ajax', '1001234567'),
+                'X-Entity-Name': f"fb_uploader_{upload_id}",
+                'X-Entity-Length': str(len(image_data)),
+                'Offset': '0',
+                'X-Entity-Type': 'image/jpeg',
+                'X-Instagram-Rupload-Params': json.dumps({
+                    "media_type": 1, 
+                    "upload_id": upload_id, 
+                    "upload_media_height": 1080, 
+                    "upload_media_width": 1080
+                }),
+                'Content-Type': 'image/jpeg',
+            }
+            
+            response = self.session.post(
+                upload_url, 
+                cookies=cookies, 
+                headers=upload_headers,
+                data=image_data,
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                print(f"[✖] Photo upload failed with status {response.status_code}")
+                print(f"[✖] Response: {response.text[:200]}")
+                return None
+            
+            # Parse upload response
+            try:
+                upload_result = response.json()
+                if upload_result.get('status') != 'ok':
+                    print(f"[✖] Upload failed: {upload_result}")
+                    return None
+                print(f"[✓] Photo uploaded, ID: {upload_result.get('upload_id')}")
+            except:
+                print(f"[✖] Could not parse upload response: {response.text[:200]}")
+                return None
+            
+            # Step 2: Configure the post with caption
+            print("[ ] Configuring post...")
+            
+            configure_url = "https://www.instagram.com/api/v1/media/configure/"
+            
+            configure_data = {
+                "archive_only": "false",
+                "caption": caption,
+                "clips_share_preview_to_feed": "1",
+                "disable_comments": "0",
+                "disable_oa_reuse": "false",
+                "igtv_share_preview_to_feed": "1",
+                "is_meta_only_post": "0",
+                "is_unified_video": "1",
+                "like_and_view_counts_disabled": "0",
+                "media_share_flow": "creation_flow",
+                "share_to_facebook": "",
+                "share_to_fb_destination_type": "USER",
+                "source_type": "library",
+                "upload_id": upload_id,
+                "video_subtitles_enabled": "0"
+            }
+            
+            configure_headers = {
+                'User-Agent': upload_headers['User-Agent'],
+                'X-CSRFToken': cookies['csrftoken'],
+                'X-IG-App-ID': upload_headers['X-IG-App-ID'],
+                'X-Instagram-AJAX': upload_headers['X-Instagram-AJAX'],
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://www.instagram.com/',
+                'Origin': 'https://www.instagram.com',
+            }
+            
+            response = self.session.post(
+                configure_url, 
+                data=configure_data, 
+                cookies=cookies, 
+                headers=configure_headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    if result.get('status') == 'ok':
+                        print(f"✅ Post uploaded successfully: {os.path.basename(image_path)}")
+                        print(f"Caption: {caption}")
+                        if result.get('media'):
+                            media = result['media']
+                            print(f"Post URL: https://www.instagram.com/p/{media.get('code', 'unknown')}/")
+                        return result
+                    else:
+                        print(f"[✖] Failed to configure post: {result}")
+                        return None
+                except Exception as json_err:
+                    print(f"[✖] Invalid JSON response: {json_err}")
+                    print(f"[✖] Response text: {response.text[:300]}")
+                    return None
+            else:
+                print(f"[✖] Configure post failed with status {response.status_code}")
+                print(f"[✖] Response: {response.text[:300]}")
+                return None
+                
         except Exception as e:
-            print(f"[✖] Failed to upload post: {e}")
+            error_msg = str(e)
+            if "login required" in error_msg.lower():
+                print(f"[✖] Session invalid: {error_msg}")
+                return "INVALID_SESSION"
+            elif "JSONDecodeError" in error_msg or "Expecting value" in error_msg:
+                print(f"[✖] Instagram API returned empty response - check your sessionid")
+                return None
+            else:
+                print(f"[✖] Failed to upload post: {error_msg}")
+                return None
 
     def upload_profile_picture(self, sessionid, headers, username, folder="Avatars"):
         print("[ ] Uploading profile picture…")
@@ -301,7 +388,8 @@ class InstagramBot:
         url = f"https://www.instagram.com/api/v1/web/accounts/web_change_profile_picture/"
         cookies = {
             "sessionid": sessionid,
-            "ig_did": "IG_DID_HERE",
+            "ig_did": headers.get('x-web-device-id', ''),
+            "csrftoken": headers.get('x-csrftoken', ''),
         }
 
         multipart_data = CurlMime()
@@ -314,13 +402,15 @@ class InstagramBot:
         )
 
         web_headers = {
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0",
-            "x-csrftoken": "1234567890abcdef",
-            "x-ig-app-id": "936619743392459",
-            "x-instagram-ajax": "1001234567", 
+            "user-agent": headers.get('user-agent', ''),
+            "x-csrftoken": headers.get('x-csrftoken', ''),
+            "x-ig-app-id": headers.get('x-ig-app-id', '936619743392459'),
+            "x-instagram-ajax": headers.get('x-instagram-ajax', ''),
+            "referer": "https://www.instagram.com/",
+            "origin": "https://www.instagram.com",
         }
 
-        resp = req.post(url, headers=web_headers, cookies=cookies, multipart=multipart_data)
+        resp = self.session.post(url, headers=web_headers, cookies=cookies, multipart=multipart_data)
         if resp.status_code == 200 and '"status":"ok"' in resp.text:
             print(f"✅ Profile picture uploaded successfully: {os.path.basename(image_path)}")
         else:
@@ -556,7 +646,7 @@ class InstagramBot:
                 "username": username,
                 "password": password,
                 "sessionid": sessionid,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(UTC).isoformat()
             }
             self.save_account(account_info)
             self.remove_dot_email(email)
@@ -750,16 +840,15 @@ Channels: https://t.me/ifostn | https://t.me/HexGalaxy
                             send_telegram_message(suspension_message)
                             continue  # Continue with same credential
                         
+                        # Instead of bot.upload_random_post(sessionid=account_info["sessionid"], folder=r"Posts")
+# Use:
+
                         bot.upload_random_post(
-                            sessionid=account_info["sessionid"],
+                            sessionid=account_info["sessionid"], 
+                            headers=bot.headers,
                             folder=r"Posts"
                         )
                         
-                        # Follow targets
-                        bot.follow_targets(
-                            sessionid=account_info["sessionid"],
-                            settings=settings
-                        )
                         
                         end_time = time.time()
                         print(f"⏱ Account creation time: {round(end_time - start_time, 2)} seconds")
