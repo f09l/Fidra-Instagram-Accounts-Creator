@@ -122,7 +122,6 @@ When an account is created successfully, you will see a detailed breakdown in yo
 📧 Email: e.xample@gmail.com
 📸 Profile Picture: Done
 📝 Post Uploaded: Done
-✅ Followed: 5 targets
 ```
 
 ---
