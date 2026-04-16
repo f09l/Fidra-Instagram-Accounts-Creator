@@ -88,7 +88,6 @@ your_email@gmail.com:abcd efgh ijkl mnop
     "interval": 2,
     "max_retries": 3,
     "retry_delay": 2,
-    "follow_targets": ["target_user1", "target_user2"]
 }
 ```
 
