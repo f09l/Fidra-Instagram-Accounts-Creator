@@ -202,7 +202,7 @@ Instagram sees these as unique, allowing you to register hundreds of accounts to
 ## 🤝 Support & Contact
 
 **Author:** [@f09l](https://github.com/f09l)  
-**Telegram:** [@ifostn](https://t.me/ifostn) | [@HexGalaxy](https://t.me/HexGalaxy)
+**Telegram:** [@ifostn](https://t.me/ifostn) 
 
 ---
 <p align="center">
