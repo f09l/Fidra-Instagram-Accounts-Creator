@@ -39,7 +39,6 @@
 | **📧 Dot-Email Tech** | Generate thousands of unique emails from a single Gmail inbox. |
 | **📩 IMAP Integration** | Automatically fetches verification codes directly from Gmail. |
 | **🖼️ Auto-Customization** | Sets random profile pictures and uploads initial posts. |
-| **👥 Auto-Following** | Automatically follows target accounts post-creation. |
 | **⚡ Multi-Credential** | Rotates through multiple Gmail accounts to maximize throughput. |
 | **📡 Proxy Support** | Integrated support for rotating proxies to prevent IP bans. |
 | **📱 Telegram Alerts** | Real-time notifications for every successful account created. |
