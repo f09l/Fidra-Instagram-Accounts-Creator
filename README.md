@@ -98,6 +98,13 @@ your_email@gmail.com:abcd efgh ijkl mnop
 }
 ```
 
+### 4. Proxy Configuration (`proxies.txt`)
+Create `proxies.txt` in the root folder to bypass IP blocks.
+Format: `http://username:password@ip:port`
+```text
+http://user123:pass456@142.202.220.242:29167
+```
+
 ---
 
 ## 🎮 Usage
@@ -186,6 +193,7 @@ Instagram sees these as unique, allowing you to register hundreds of accounts to
 📁 instagram-account-generator/
 ├── 📜 main.py               # Application Core
 ├── 📜 credentials.txt       # Gmail List
+├── 📜 proxies.txt           # Proxy Configuration
 ├── 📜 settings.json        # Bot Settings
 ├── 📜 bot.json             # Telegram Config
 ├── 📂 Avatars/              # Profile Pictures
