@@ -126,6 +126,11 @@ class InstagramBot:
         print("[🔄] Resetting session state...")
         self.session.close()
         self.session = req.Session()
+        
+        # PERSIST PROXY: Ensure the proxy is applied to the new session
+        if hasattr(self, 'proxies') and self.proxies:
+            self.session.proxies = self.proxies
+            
         self.session.impersonate = 'chrome110'
         self.headers = None
         time.sleep(2)  # Brief pause after reset
@@ -246,10 +251,13 @@ class InstagramBot:
             # Generate unique upload ID
             upload_id = str(int(time.time() * 1000))
             
+            # Get fresh CSRF token from session cookies
+            fresh_csrftoken = self.session.cookies.get('csrftoken', headers.get('x-csrftoken', ''))
+            
             # Setup cookies from session
             cookies = {
                 "sessionid": sessionid,
-                "csrftoken": headers.get('x-csrftoken', ''),
+                "csrftoken": fresh_csrftoken,
                 "ig_did": headers.get('x-web-device-id', ''),
             }
             
@@ -263,7 +271,7 @@ class InstagramBot:
             
             upload_headers = {
                 'User-Agent': headers.get('user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
-                'X-CSRFToken': cookies['csrftoken'],
+                'X-CSRFToken': fresh_csrftoken,
                 'X-IG-App-ID': headers.get('x-ig-app-id', '936619743392459'),
                 'X-Instagram-AJAX': headers.get('x-instagram-ajax', '1001234567'),
                 'X-Entity-Name': f"fb_uploader_{upload_id}",
@@ -328,7 +336,7 @@ class InstagramBot:
             
             configure_headers = {
                 'User-Agent': upload_headers['User-Agent'],
-                'X-CSRFToken': cookies['csrftoken'],
+                'X-CSRFToken': fresh_csrftoken,
                 'X-IG-App-ID': upload_headers['X-IG-App-ID'],
                 'X-Instagram-AJAX': upload_headers['X-Instagram-AJAX'],
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -385,11 +393,14 @@ class InstagramBot:
         if not image_path:
             return
 
+        # Get fresh CSRF token from session cookies
+        fresh_csrftoken = self.session.cookies.get('csrftoken', headers.get('x-csrftoken', ''))
+        
         url = f"https://www.instagram.com/api/v1/web/accounts/web_change_profile_picture/"
         cookies = {
             "sessionid": sessionid,
             "ig_did": headers.get('x-web-device-id', ''),
-            "csrftoken": headers.get('x-csrftoken', ''),
+            "csrftoken": fresh_csrftoken,
         }
 
         multipart_data = CurlMime()
@@ -403,9 +414,11 @@ class InstagramBot:
 
         web_headers = {
             "user-agent": headers.get('user-agent', ''),
-            "x-csrftoken": headers.get('x-csrftoken', ''),
+            "x-asbd-id": "198387",
+            "x-csrftoken": fresh_csrftoken,
             "x-ig-app-id": headers.get('x-ig-app-id', '936619743392459'),
-            "x-instagram-ajax": headers.get('x-instagram-ajax', ''),
+            "x-instagram-ajax": headers.get('x-instagram-ajax', '1'),
+            "x-requested-with": "XMLHttpRequest",
             "referer": "https://www.instagram.com/",
             "origin": "https://www.instagram.com",
         }
@@ -417,45 +430,114 @@ class InstagramBot:
             print(f"[✖] Failed to upload profile picture:\n{resp.text}")
 
     def _random_agent(self):
-        return (f'Mozilla/5.0 (Linux; Android {random.randint(9,13)}; '
-                f'{"".join(random.choices(string.ascii_uppercase, k=3))}{random.randint(111,999)}) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Mobile Safari/537.36')
+        # Using a consistent Windows Chrome User-Agent to match 'chrome110' impersonation
+        # This prevents fingerprint mismatch that causes 'datr' cookie issues on some IPs
+        version = f"110.0.{random.randint(5000, 5481)}.{random.randint(100, 199)}"
+        return f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36"
 
     def init_headers(self):
-        max_retries = 5  # Limit the number of retries
+        max_retries = 5
         retry_count = 0
+        
+        # List of candidate URLs to try for initial cookies
+        urls = [
+            'https://www.instagram.com/',
+            'https://www.instagram.com/accounts/login/',
+            'https://www.instagram.com/explore/'
+        ]
+        
+        # Impersonation targets to rotate through (using versions supported by your install)
+        impersonates = ['chrome110', 'chrome116', 'safari15_5']
         
         while retry_count < max_retries:
             try:
-                agent = self._random_agent()
-                r = self.session.get('https://www.instagram.com/', headers={'user-agent': agent},
-                                     proxies=self.proxies, timeout=30)
+                self.reset_session()
                 
-                # Check if required cookies exist before accessing them
-                if 'datr' not in r.cookies:
-                    print(f"[⚠] 'datr' cookie not found in response (attempt {retry_count + 1}/{max_retries})")
+                # Dynamic impersonation and User-Agent
+                target = impersonates[retry_count % len(impersonates)]
+                self.session.impersonate = target
+                
+                if 'safari' in target:
+                    agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15"
+                    platform = '"macOS"'
+                    mobile = '?0'
+                elif 'chrome116' in target:
+                    agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+                    platform = '"Windows"'
+                    mobile = '?0'
+                else:
+                    agent = self._random_agent()
+                    platform = '"Windows"'
+                    mobile = '?0'
+
+                url = urls[retry_count % len(urls)]
+                print(f"[ ] Initializing headers using {target} from {url}...")
+                
+                # First visit to get initial cookies
+                r = self.session.get(
+                    url, 
+                    headers={
+                        'user-agent': agent,
+                        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'accept-language': 'en-US,en;q=0.9',
+                        'sec-ch-ua-mobile': mobile,
+                        'sec-ch-ua-platform': platform,
+                        'upgrade-insecure-requests': '1',
+                    },
+                    proxies=self.proxies, 
+                    timeout=30
+                )
+                
+                if r.status_code != 200:
+                    print(f"[⚠] Instagram returned status {r.status_code}")
+                
+                # Check for critical cookies
+                if 'datr' not in r.cookies or 'csrftoken' not in r.cookies:
+                    print(f"[⚠] Critical cookies (datr/csrftoken) missing (Status: {r.status_code})")
+                    if "challenge" in r.text.lower() or "checkpoint" in r.text.lower():
+                        print("[⚠] Instagram is requesting a security challenge (CAPTCHA/SMS)")
+                    
                     retry_count += 1
-                    time.sleep(2)  # Wait longer between retries
+                    time.sleep(5 + (retry_count * 2))
                     continue
                     
-                mid = r.text.split('{"mid":{"value":"')[1].split('",')[0]
+                # Extract values carefully
+                try:
+                    mid = r.text.split('{"mid":{"value":"')[1].split('",')[0]
+                except:
+                    # Fallback for mid if extraction fails
+                    mid = r.cookies.get('mid', '')
+                
                 datr = r.cookies['datr']
                 csrftoken = r.cookies['csrftoken']
-                ig_did = r.cookies['ig_did']
+                ig_did = r.cookies.get('ig_did', f"did-{random.randint(1000, 9999)}")
         
-                resp = self.session.get('https://www.instagram.com/', headers={'user-agent': agent},
-                                        proxies=self.proxies, timeout=30)
-                appid = resp.text.split('APP_ID":"')[1].split('"')[0]
-                rollout = resp.text.split('rollout_hash":"')[1].split('"')[0]
+                # Second visit or extract from the first one
+                try:
+                    appid = r.text.split('APP_ID":"')[1].split('"')[0]
+                    rollout = r.text.split('rollout_hash":"')[1].split('"')[0]
+                except:
+                    # Default values if extraction fails (usually doesn't)
+                    appid = "936619743392459"
+                    rollout = "1"
         
                 self.headers = {
                     'user-agent': agent,
-                    'cookie': f'dpr=3; csrftoken={csrftoken}; mid={mid}; ig_nrcb=1; ig_did={ig_did}; datr={datr}',
-                    'x-ig-app-id': appid,
-                    'x-instagram-ajax': rollout,
+                    'viewport-width': '1920',
+                    'x-asbd-id': '198387',
                     'x-csrftoken': csrftoken,
+                    'x-ig-app-id': appid,
+                    'x-ig-www-claim': '0',
+                    'x-instagram-ajax': rollout,
+                    'x-requested-with': 'XMLHttpRequest',
                     'x-web-device-id': ig_did,
+                    'referer': 'https://www.instagram.com/',
+                    'origin': 'https://www.instagram.com',
                 }
+                
+                # Re-add cookies to the session manually to be safe
+                cookie_str = f'csrftoken={csrftoken}; mid={mid}; ig_nrcb=1; ig_did={ig_did}; datr={datr}'
+                self.headers['cookie'] = cookie_str
                 print("[✅] Headers initialized successfully")
                 return True
             except Exception as e:
@@ -476,13 +558,19 @@ class InstagramBot:
         app_password = self.current_credential["app_password"]
 
         try:
+            # Increase timeout for IMAP connection
             mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
             mail.login(email, app_password)
             mail.logout()
             print(f"✅ Gmail authentication successful for {email}")
             return True
         except imaplib.IMAP4.error as e:
-            print(f"[✖] Gmail authentication failed (IMAP error): {e}")
+            error_str = str(e)
+            print(f"[✖] Gmail authentication failed for {email}")
+            print(f"[✖] IMAP Error: {error_str}")
+            if "AUTHENTICATIONFAILED" in error_str:
+                print("[💡] Tip: Make sure you are using a 16-character 'App Password', NOT your regular Gmail password.")
+                print("[💡] Tip: Ensure IMAP is enabled in your Gmail settings (Settings -> Forwarding and POP/IMAP).")
             return False
         except Exception as e:
             print(f"[✖] Gmail authentication failed (Other error): {e}")
@@ -526,43 +614,90 @@ class InstagramBot:
 
     def get_email_code(self, target_email, interval=2, max_wait=60):
         waited = 0
-        checked_ids = set()
         email_addr = self.current_credential["email"]
         app_password = self.current_credential["app_password"]
+        target_email = target_email.lower().strip()
+        
+        print(f"\n[🔍] Searching for code sent to: {target_email}")
+        
+        folders = ["INBOX", "[Gmail]/Spam", "Spam", "[Gmail]/All Mail", "[Gmail]/Social"]
         
         while waited < max_wait:
-            print(f"⏳ Waiting for code: {waited}s / {max_wait}s...", end="\r")
             try:
                 mail = imaplib.IMAP4_SSL("imap.gmail.com")
                 mail.login(email_addr, app_password)
-                mail.select("inbox")
-                status, data = mail.search(None, 'FROM', '"no-reply@mail.instagram.com"')
-                mail_ids = data[0].split()
-                if mail_ids:
-                    latest_id = mail_ids[-1]
-                    if latest_id not in checked_ids:
-                        checked_ids.add(latest_id)
-                        status, msg_data = mail.fetch(latest_id, "(RFC822)")
-                        for response_part in msg_data:
-                            if isinstance(response_part, tuple):
-                                msg = email.message_from_bytes(response_part[1])
-                                subject, encoding = decode_header(msg["subject"])[0]
-                                if isinstance(subject, bytes):
-                                    subject = subject.decode(encoding if encoding else "utf-8", errors="ignore")
-                                match = re.search(r'\b\d{6}\b', subject)
-                                code = match.group() if match else None
-                                to_emails = [addr[1] for addr in getaddresses([msg["to"]])]
-                                if target_email in to_emails and code:
-                                    print(f"\n✅ Code received: {code}")
-                                    self.code = code
-                                    return code
-            except Exception as e:
-                print(f"[⚠] Error fetching email: {e}")
+                
+                found_any = False
+                for folder in folders:
+                    print(f"⏳ {waited}s | Checking {folder}...", end="\r")
+                    try:
+                        status, _ = mail.select(folder, readonly=True)
+                        if status != 'OK': continue
+                            
+                        # Search for ALL emails from Instagram in this folder
+                        status, data = mail.search(None, '(FROM "no-reply@mail.instagram.com")')
+                        mail_ids = data[0].split()
+                        
+                        if mail_ids:
+                            # Only check the last 3 emails in each folder to be fast
+                            for latest_id in reversed(mail_ids[-3:]):
+                                status, msg_data = mail.fetch(latest_id, "(RFC822)")
+                                for response_part in msg_data:
+                                    if isinstance(response_part, tuple):
+                                        msg = email.message_from_bytes(response_part[1])
+                                        
+                                        # Recipient check
+                                        to_header = msg.get("To", "")
+                                        recipients = [addr[1].lower().strip() for addr in getaddresses([to_header])]
+                                        
+                                        if target_email in recipients:
+                                            found_any = True
+                                            # Decode subject
+                                            subject_header = msg.get("Subject", "")
+                                            decoded_parts = decode_header(subject_header)
+                                            subject = ""
+                                            for part, encoding in decoded_parts:
+                                                if isinstance(part, bytes):
+                                                    subject += part.decode(encoding if encoding else "utf-8", errors="ignore")
+                                                else: subject += str(part)
+                                            
+                                            # Search for 6-digit code in SUBJECT
+                                            match = re.search(r'\b\d{6}\b', subject)
+                                            code = match.group() if match else None
+                                            
+                                            # If not in subject, search in BODY
+                                            if not code:
+                                                if msg.is_multipart():
+                                                    for part in msg.walk():
+                                                        if part.get_content_type() == "text/plain":
+                                                            body = part.get_payload(decode=True).decode(errors="ignore")
+                                                            match = re.search(r'\b\d{6}\b', body)
+                                                            if match: code = match.group(); break
+                                                else:
+                                                    body = msg.get_payload(decode=True).decode(errors="ignore")
+                                                    match = re.search(r'\b\d{6}\b', body)
+                                                    if match: code = match.group()
 
-            time.sleep(interval)
+                                            if code:
+                                                print(f"\n✅ Code found in {folder}: {code}")
+                                                self.code = code
+                                                mail.logout()
+                                                return code
+                    except:
+                        pass
+                
+                mail.logout()
+                if not found_any:
+                    # If we didn't find ANY email for this target, don't wait the full interval
+                    time.sleep(1)
+                else:
+                    time.sleep(interval)
+            except Exception as e:
+                time.sleep(interval)
+            
             waited += interval
 
-        print("\n[✖] Could not fetch code after waiting.")
+        print(f"\n[✖] Code not found for {target_email}. Check Gmail manually.")
         return None
 
     def get_username(self, name, email):
@@ -723,7 +858,22 @@ Channels: https://t.me/ifostn | https://t.me/HexGalaxy
         max_wait = 60
         interval = 2
 
-    bot = InstagramBot(credentials_list)
+    # Load proxy if exists
+    proxies = None
+    if os.path.exists("proxies.txt"):
+        try:
+            with open("proxies.txt", "r") as f:
+                proxy_line = f.readline().strip()
+                if proxy_line:
+                    proxies = {
+                        "http": proxy_line if proxy_line.startswith("http") else f"http://{proxy_line}",
+                        "https": proxy_line if proxy_line.startswith("http") else f"http://{proxy_line}"
+                    }
+                    print(f"[+] Using proxy: {proxy_line.split('@')[-1] if '@' in proxy_line else proxy_line}")
+        except Exception as e:
+            print(f"[⚠] Error loading proxies.txt: {e}")
+
+    bot = InstagramBot(credentials_list, proxies=proxies)
     
     # Check if we have any available credentials after filtering banned ones
     if not bot.available_credentials:
@@ -880,3 +1030,4 @@ Channels: https://t.me/ifostn | https://t.me/HexGalaxy
                      f"📊 <b>Total Accounts Created:</b> <code>{total_accounts_created}</code>\n" \
                      f"🚫 <b>Status:</b> All credentials exhausted"
     send_telegram_message(summary_message)
+
